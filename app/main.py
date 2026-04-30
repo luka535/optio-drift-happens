@@ -5,6 +5,7 @@ from typing import List
 from app.database import engine, Base, get_db
 from app import models, schemas
 from app.evaluator import process_segment_run
+from app.redis_client import mark_segments_dirty
 
 Base.metadata.create_all(bind=engine)
 
@@ -75,11 +76,15 @@ def simulate_new_transaction(tx_in: schemas.TransactionCreate, db: Session = Dep
     db.commit()
     db.refresh(new_tx)
 
-    # TODO (Day 3): Emit "User {user_id} mutated" event to Redis so background workers
-    # can sweep and evaluate impacted segments automatically.
+    dynamic_segments = db.query(models.Segment.id).filter(
+        models.Segment.type == models.SegmentType.DYNAMIC
+    ).all()
     
+    segment_ids = [s[0] for s in dynamic_segments]
+    mark_segments_dirty(segment_ids)
+
     return {
         "message": "Transaction added successfully", 
         "transaction_id": new_tx.id,
-        "note": "Day 3 will trigger dirty marks from this action"
+        "note": f"Marked {len(segment_ids)} segments as dirty in Redis."
     }

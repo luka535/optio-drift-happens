@@ -5,6 +5,8 @@ from .models import (
     Segment, SegmentMembershipCurrent, SegmentRun, 
     SegmentDeltaMember, Transaction, TriggerType, RunStatus, DeltaAction
 )
+from app.redis_client import mark_segments_dirty
+from app.models import SegmentDependency
 
 def evaluate_dynamic_rules(db: Session, rules_json: dict) -> Set[int]:
     """
@@ -85,5 +87,14 @@ def process_segment_run(db: Session, segment_id: int, trigger: TriggerType) -> S
     
     db.commit()
     db.refresh(run)
-    
+    if run.added_count > 0 or run.removed_count > 0:
+        children = db.query(SegmentDependency.child_segment_id).filter(
+            SegmentDependency.parent_segment_id == segment.id
+        ).all()
+        
+        child_ids = [c[0] for c in children]
+        if child_ids:
+            # Send the signal to Redis!
+            mark_segments_dirty(child_ids)
+                
     return run
