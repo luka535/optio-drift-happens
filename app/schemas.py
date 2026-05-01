@@ -49,3 +49,11 @@ class DeltaMemberOut(BaseModel):
 class TransactionCreate(BaseModel):
     user_id: int
     amount: int 
+
+class UserCreate(BaseModel):
+    name: str
+
+class BulkTransactionCreate(BaseModel):
+    user_id: int
+    amount: int
+    count: int  

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optio Segment Drift</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-6xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8 text-blue-600">Optio: Segment Drift Dashboard</h1>
+        
+        <div class="grid grid-cols-2 gap-8">
+            <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-green-400">
+                <h2 class="text-xl font-bold mb-2">Segment 1: Active Buyers <span class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded">Dynamic</span></h2>
+                <p class="text-sm text-gray-500 mb-4">Rule: At least 1 transaction</p>
+                <h3 class="font-semibold border-b pb-2 mb-2">Current Members (<span id="count-1">0</span>)</h3>
+                <ul id="members-1" class="text-sm space-y-1 h-24 overflow-y-auto"></ul>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-green-400">
+                <h2 class="text-xl font-bold mb-2">Segment 2: VIP Spenders <span class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded">Dynamic</span></h2>
+                <p class="text-sm text-gray-500 mb-4">Rule: Total spend > $5,000</p>
+                <h3 class="font-semibold border-b pb-2 mb-2">Current Members (<span id="count-2">0</span>)</h3>
+                <ul id="members-2" class="text-sm space-y-1 h-24 overflow-y-auto"></ul>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-purple-400">
+                <h2 class="text-xl font-bold mb-2">Segment 3: Target Audience <span class="text-xs bg-purple-200 text-purple-800 px-2 py-1 rounded">Dependent</span></h2>
+                <p class="text-sm text-gray-500 mb-4">Rule: Depends on Segment 1 (Cascade Test)</p>
+                <h3 class="font-semibold border-b pb-2 mb-2">Current Members (<span id="count-3">0</span>)</h3>
+                <ul id="members-3" class="text-sm space-y-1 h-24 overflow-y-auto"></ul>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-gray-400 bg-gray-50">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h2 class="text-xl font-bold mb-2">Segment 4: March Campaign <span class="text-xs bg-gray-300 text-gray-800 px-2 py-1 rounded">Static</span></h2>
+                        <p class="text-sm text-gray-500 mb-4">Rule: Frozen in time (Does NOT auto-update)</p>
+                    </div>
+                    <button onclick="manualRefresh(4)" class="bg-gray-800 text-white text-sm px-3 py-1 rounded hover:bg-black">
+                        🔄 Manual Refresh
+                    </button>
+                </div>
+                <h3 class="font-semibold border-b pb-2 mb-2">Current Members (<span id="count-4">0</span>)</h3>
+                <ul id="members-4" class="text-sm space-y-1 h-24 overflow-y-auto"></ul>
+            </div>
+        </div>
+
+        <h2 class="text-2xl font-bold mt-12 mb-4 text-gray-700">⚙️ Control Center (Simulations)</h2>
+        <div class="grid grid-cols-3 gap-6">
+            
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h3 class="font-bold mb-2">1. Add New User</h3>
+                <p class="text-xs text-gray-500 mb-4">Spawns a new user into the database.</p>
+                <input type="text" id="new-user-name" placeholder="User Name (e.g. Dave)" class="p-2 border rounded w-full mb-2">
+                <button onclick="createUser()" class="w-full bg-blue-100 text-blue-700 px-4 py-2 rounded font-semibold hover:bg-blue-200">Create User</button>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                <h3 class="font-bold mb-2">2. Single Transaction</h3>
+                <p class="text-xs text-gray-500 mb-4">Triggers drift for dynamic segments.</p>
+                <select id="sim-user" class="p-2 border rounded w-full mb-2"></select>
+                <input type="number" id="sim-amount" placeholder="Amount ($)" class="p-2 border rounded w-full mb-2">
+                <button onclick="simulateTransaction(false)" class="w-full bg-blue-600 text-white px-4 py-2 rounded font-semibold hover:bg-blue-700">Add Transaction</button>
+            </div>
+
+            <div class="bg-red-50 p-6 rounded-lg shadow-sm border border-red-200">
+                <h3 class="font-bold mb-2 text-red-700">3. 10k Bulk Load Test</h3>
+                <p class="text-xs text-red-600 mb-4">Proves Redis coalescing works under extreme load.</p>
+                <select id="bulk-user" class="p-2 border rounded w-full mb-2 bg-white"></select>
+                <button onclick="simulateTransaction(true)" class="w-full bg-red-600 text-white px-4 py-2 rounded font-semibold hover:bg-red-700">Fire 10,000 Transactions</button>
+            </div>
+        </div>
+        
+        <p id="sim-status" class="text-center text-sm font-bold text-gray-600 mt-6 h-6"></p>
+    </div>
+
+    <script>
+        async function fetchSegment(id) {
+            const res = await fetch(`/api/segments/${id}/members`);
+            const members = await res.json();
+            document.getElementById(`count-${id}`).innerText = members.length;
+            const ul = document.getElementById(`members-${id}`);
+            ul.innerHTML = members.map(m => `<li>👤 ${m.name}</li>`).join('');
+        }
+
+        async function fetchUsersForDropdown() {
+
+        }
+        
+        let localUsers = [
+            {id: 1, name: "Alice"}, {id: 2, name: "Bob"}, {id: 3, name: "Charlie"}
+        ];
+
+        function renderDropdowns() {
+            const opts = localUsers.map(u => `<option value="${u.id}">${u.name} (ID: ${u.id})</option>`).join('');
+            document.getElementById('sim-user').innerHTML = opts;
+            document.getElementById('bulk-user').innerHTML = opts;
+        }
+
+        async function createUser() {
+            const name = document.getElementById("new-user-name").value;
+            if(!name) return;
+            const res = await fetch('/api/simulations/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            });
+            const newUser = await res.json();
+            localUsers.push(newUser);
+            renderDropdowns();
+            document.getElementById("new-user-name").value = '';
+            showStatus(`User '${name}' created! Give them a transaction to add them to a segment.`);
+        }
+
+        async function simulateTransaction(isBulk) {
+            const userId = document.getElementById(isBulk ? "bulk-user" : "sim-user").value;
+            const amount = isBulk ? 500 : document.getElementById("sim-amount").value;
+            
+            if(!isBulk && !amount) return alert("Please enter an amount");
+
+            const payload = isBulk 
+                ? { user_id: parseInt(userId), amount: 100, count: 10000 } 
+                : { user_id: parseInt(userId), amount: parseInt(amount) * 100 };
+
+            const endpoint = isBulk ? '/api/simulations/bulk' : '/api/simulations/transactions';
+            
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if(res.ok) {
+                const msg = isBulk ? `Fired 10,000 transactions at User ${userId}! Watch Celery.` : `Sent $${amount} to User ${userId}.`;
+                showStatus(msg);
+            }
+        }
+
+        async function manualRefresh(id) {
+            const btn = event.target;
+            btn.innerText = "⏳...";
+            await fetch(`/api/segments/${id}/evaluate`, { method: 'POST' });
+            await fetchSegment(id);
+            btn.innerText = "🔄 Manual Refresh";
+        }
+
+        function showStatus(msg) {
+            const status = document.getElementById("sim-status");
+            status.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            setTimeout(() => status.innerText = "", 5000);
+        }
+
+        renderDropdowns();
+        setInterval(() => { [1,2,3,4].forEach(fetchSegment); }, 3000);
+        [1,2,3,4].forEach(fetchSegment);
+    </script>
+</body>
+</html>

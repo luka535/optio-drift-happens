@@ -1,3 +1,6 @@
+import os
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -11,6 +14,13 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Drift Happens API", version="1.0.0")
 
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+def serve_ui():
+    with open(os.path.join("app", "static", "index.html"), "r", encoding="utf-8") as f:
+        return f.read()
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "message": "Segment drift system is online."}
@@ -18,11 +28,6 @@ def health_check():
 
 @app.post("/api/segments/{segment_id}/evaluate", response_model=schemas.SegmentRunOut)
 def evaluate_segment_endpoint(segment_id: int, db: Session = Depends(get_db)):
-    """
-    (Manual) Triggers an evaluation of a segment.
-    In a real scenario, this is called by the Celery worker for dynamic segments,
-    and called by the UI for static segment manual refresh.
-    """
     segment = db.query(models.Segment).filter(models.Segment.id == segment_id).first()
     if not segment:
         raise HTTPException(status_code=404, detail="Segment not found")
@@ -45,9 +50,7 @@ def get_segment_members(segment_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/segments/{segment_id}/runs", response_model=List[schemas.SegmentRunOut])
 def get_segment_runs(segment_id: int, db: Session = Depends(get_db)):
-    """
-    Returns the history of evaluations for a segment.
-    """
+
     runs = db.query(models.SegmentRun).filter(
         models.SegmentRun.segment_id == segment_id
     ).order_by(models.SegmentRun.started_at.desc()).all()
@@ -55,10 +58,7 @@ def get_segment_runs(segment_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/runs/{run_id}/delta", response_model=List[schemas.DeltaMemberOut])
 def get_run_delta(run_id: int, db: Session = Depends(get_db)):
-    """
-    Implements the Claim-Check/Large Payload pattern.
-    Consumers fetch the exact Added/Removed list via this endpoint using the run_id.
-    """
+
     deltas = db.query(models.SegmentDeltaMember).filter(
         models.SegmentDeltaMember.run_id == run_id
     ).all()
@@ -87,4 +87,39 @@ def simulate_new_transaction(tx_in: schemas.TransactionCreate, db: Session = Dep
         "message": "Transaction added successfully", 
         "transaction_id": new_tx.id,
         "note": f"Marked {len(segment_ids)} segments as dirty in Redis."
+    }
+
+@app.post("/api/simulations/users", response_model=schemas.UserOut)
+def create_new_user(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
+    new_user = models.User(name=user_in.name)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+@app.post("/api/simulations/bulk", response_model=dict)
+def simulate_bulk_transactions(bulk_in: schemas.BulkTransactionCreate, db: Session = Depends(get_db)):
+
+    user = db.query(models.User).filter(models.User.id == bulk_in.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    transactions = [
+        models.Transaction(user_id=bulk_in.user_id, amount=bulk_in.amount)
+        for _ in range(bulk_in.count)
+    ]
+    db.add_all(transactions)
+    db.commit()
+
+    dynamic_segments = db.query(models.Segment.id).filter(
+        models.Segment.type == models.SegmentType.DYNAMIC
+    ).all()
+    segment_ids = [s[0] for s in dynamic_segments]
+    
+    from app.redis_client import mark_segments_dirty
+    mark_segments_dirty(segment_ids)
+
+    return {
+        "message": f"Successfully injected {bulk_in.count} transactions for User {bulk_in.user_id}",
+        "note": "Watch the Celery worker - it will only evaluate the segments ONE time!"
     }
