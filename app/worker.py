@@ -4,6 +4,7 @@ from app.database import SessionLocal
 from app.evaluator import process_segment_run
 from app.models import TriggerType
 import time
+from app.models import TriggerType, SegmentDeltaMember, DeltaAction
 
 celery_app = Celery("drift_worker", broker="redis://localhost:6379/0")
 
@@ -32,6 +33,10 @@ def evaluate_segment_task(self, segment_id: int):
     try:
         run = process_segment_run(db, segment_id, TriggerType.MUTATION)
         print(f"✅ Evaluated Segment {segment_id} | Added: {run.added_count} | Removed: {run.removed_count}")
+        
+        if run.added_count > 0 or run.removed_count > 0:
+            campaign_consumer_task.delay(run.id)
+            
         return run.id
     except Exception as e:
         print(f"❌ Failed to evaluate Segment {segment_id}: {str(e)}")
@@ -39,3 +44,32 @@ def evaluate_segment_task(self, segment_id: int):
     finally:
         db.close()
         redis_client.delete(lock_key)
+
+
+@celery_app.task(bind=True)
+def campaign_consumer_task(self, run_id: int):
+    """
+    Acts as a background consumer that listens for segment changes.
+    It fetches the exact Delta payload for the run and "reacts" to it.
+    """
+    db = SessionLocal()
+    try:
+        # Fetch the explicit +/- delta for this specific run
+        deltas = db.query(SegmentDeltaMember).filter(
+            SegmentDeltaMember.run_id == run_id
+        ).all()
+
+        if not deltas:
+            return "No changes to consume."
+
+        print(f"📣 CAMPAIGN CONSUMER triggered for Run {run_id}")
+        
+        for delta in deltas:
+            if delta.action == DeltaAction.ADDED:
+                print(f"   [+] Sending 'Welcome to the Segment' email to User {delta.user_id}")
+            elif delta.action == DeltaAction.REMOVED:
+                print(f"   [-] Sending 'We Miss You' discount to User {delta.user_id}")
+                
+        return f"Consumed {len(deltas)} delta events."
+    finally:
+        db.close()
