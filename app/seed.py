@@ -4,7 +4,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal, engine, Base
-from app.models import User, Transaction, Segment, SegmentType, SegmentDependency
+from app.models import User, Transaction, Segment, SegmentType, SegmentDependency, UserStat
 
 def run_seed():
     print("⏳ Creating database tables...")
@@ -22,6 +22,12 @@ def run_seed():
     u2 = User(name="Bob (Active Low Spender)")
     u3 = User(name="Charlie (Inactive)")
     db.add_all([u1, u2, u3])
+    db.flush() # Flush to get IDs
+
+    # Give them their starting pre-computed stats!
+    db.add(UserStat(user_id=u1.id, total_spend=550000, transaction_count=1))
+    db.add(UserStat(user_id=u2.id, total_spend=2000, transaction_count=1))
+    db.add(UserStat(user_id=u3.id, total_spend=0, transaction_count=0))
     db.commit()
 
     print("💸 Seeding Transactions...")

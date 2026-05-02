@@ -3,15 +3,12 @@ from sqlalchemy import func
 from typing import Set, List
 from .models import (
     Segment, SegmentMembershipCurrent, SegmentRun, 
-    SegmentDeltaMember, Transaction, TriggerType, RunStatus, DeltaAction
+    SegmentDeltaMember, Transaction, TriggerType, RunStatus, DeltaAction, UserStat
 )
 from app.redis_client import mark_segments_dirty
 from app.models import SegmentDependency
 
 def evaluate_dynamic_rules(db: Session, rules_json: dict) -> Set[int]:
-    """
-    Parses our JSON DSL rules and returns a set of user_ids that match.
-    """
     if not rules_json:
         return set()
 
@@ -20,12 +17,12 @@ def evaluate_dynamic_rules(db: Session, rules_json: dict) -> Set[int]:
     value = rules_json.get("value")
 
     if field == "transaction_count" and op == ">=":
-        results = db.query(Transaction.user_id).group_by(Transaction.user_id).having(func.count() >= value).all()
+        results = db.query(UserStat.user_id).filter(UserStat.transaction_count >= value).all()
         return {r[0] for r in results}
 
     elif field == "total_spend" and op == ">":
         value_in_cents = value * 100 
-        results = db.query(Transaction.user_id).group_by(Transaction.user_id).having(func.sum(Transaction.amount) > value_in_cents).all()
+        results = db.query(UserStat.user_id).filter(UserStat.total_spend > value_in_cents).all()
         return {r[0] for r in results}
 
     elif field == "segment_id" and op == "in":

@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from typing import List
 
 from app.database import engine, Base, get_db
@@ -64,6 +65,28 @@ def get_run_delta(run_id: int, db: Session = Depends(get_db)):
     ).all()
     return deltas
 
+@app.get("/api/activity")
+def get_recent_activity(db: Session = Depends(get_db)):
+    deltas = db.query(
+        models.SegmentDeltaMember.action,
+        models.User.name.label("user_name"),
+        models.Segment.name.label("segment_name"),
+        models.SegmentRun.completed_at
+    ).join(models.User, models.SegmentDeltaMember.user_id == models.User.id)\
+     .join(models.SegmentRun, models.SegmentDeltaMember.run_id == models.SegmentRun.id)\
+     .join(models.Segment, models.SegmentRun.segment_id == models.Segment.id)\
+     .order_by(desc(models.SegmentRun.completed_at), desc(models.SegmentDeltaMember.run_id))\
+     .limit(10).all()
+    
+    return [
+        {
+            "action": d.action,
+            "user": d.user_name,
+            "segment": d.segment_name,
+            "time": d.completed_at.strftime("%H:%M:%S") if d.completed_at else "Pending"
+        } for d in deltas
+    ]
+
 @app.post("/api/simulations/transactions", response_model=dict)
 def simulate_new_transaction(tx_in: schemas.TransactionCreate, db: Session = Depends(get_db)):
 
@@ -73,6 +96,10 @@ def simulate_new_transaction(tx_in: schemas.TransactionCreate, db: Session = Dep
 
     new_tx = models.Transaction(user_id=tx_in.user_id, amount=tx_in.amount)
     db.add(new_tx)
+    stat = db.query(models.UserStat).filter(models.UserStat.user_id == tx_in.user_id).first()
+    if stat:
+        stat.total_spend += tx_in.amount
+        stat.transaction_count += 1
     db.commit()
     db.refresh(new_tx)
 
@@ -93,8 +120,9 @@ def simulate_new_transaction(tx_in: schemas.TransactionCreate, db: Session = Dep
 def create_new_user(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
     new_user = models.User(name=user_in.name)
     db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    db.flush()    
+    db.add(models.UserStat(user_id=new_user.id, total_spend=0, transaction_count=0))
+    db.commit() 
     return new_user
 
 @app.post("/api/simulations/bulk", response_model=dict)
@@ -109,6 +137,10 @@ def simulate_bulk_transactions(bulk_in: schemas.BulkTransactionCreate, db: Sessi
         for _ in range(bulk_in.count)
     ]
     db.add_all(transactions)
+    stat = db.query(models.UserStat).filter(models.UserStat.user_id == bulk_in.user_id).first()
+    if stat:
+        stat.total_spend += (bulk_in.amount * bulk_in.count)
+        stat.transaction_count += bulk_in.count
     db.commit()
 
     dynamic_segments = db.query(models.Segment.id).filter(

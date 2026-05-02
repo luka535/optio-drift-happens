@@ -123,3 +123,12 @@ class SegmentDeltaMember(Base):
     action = Column(Enum(DeltaAction), primary_key=True) 
     
     run = relationship("SegmentRun", back_populates="deltas")
+
+class UserStat(Base):
+    __tablename__ = "user_stats"
+    
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    total_spend = Column(Integer, default=0, nullable=False)
+    transaction_count = Column(Integer, default=0, nullable=False)
+    
+    user = relationship("User", backref="stats")

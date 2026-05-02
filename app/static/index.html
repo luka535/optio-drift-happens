@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 p-8">
-    <div class="max-w-6xl mx-auto">
+    <div class="max-w-7xl mx-auto">
         <h1 class="text-3xl font-bold mb-8 text-blue-600">Optio: Segment Drift Dashboard</h1>
         
         <div class="grid grid-cols-2 gap-8">
@@ -47,33 +47,50 @@
             </div>
         </div>
 
-        <h2 class="text-2xl font-bold mt-12 mb-4 text-gray-700">⚙️ Control Center (Simulations)</h2>
-        <div class="grid grid-cols-3 gap-6">
+        <div class="mt-12 grid grid-cols-3 gap-8">
             
-            <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <h3 class="font-bold mb-2">1. Add New User</h3>
-                <p class="text-xs text-gray-500 mb-4">Spawns a new user into the database.</p>
-                <input type="text" id="new-user-name" placeholder="User Name (e.g. Dave)" class="p-2 border rounded w-full mb-2">
-                <button onclick="createUser()" class="w-full bg-blue-100 text-blue-700 px-4 py-2 rounded font-semibold hover:bg-blue-200">Create User</button>
+            <div class="col-span-2">
+                <h2 class="text-2xl font-bold mb-4 text-gray-700">⚙️ Control Center (Simulations)</h2>
+                <div class="grid grid-cols-2 gap-6">
+                    
+                    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h3 class="font-bold mb-2">1. Add New User</h3>
+                        <p class="text-xs text-gray-500 mb-4">Spawns a new user into the database.</p>
+                        <input type="text" id="new-user-name" placeholder="User Name (e.g. Dave)" class="p-2 border rounded w-full mb-2">
+                        <button onclick="createUser()" class="w-full bg-blue-100 text-blue-700 px-4 py-2 rounded font-semibold hover:bg-blue-200">Create User</button>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h3 class="font-bold mb-2">2. Single Transaction</h3>
+                        <p class="text-xs text-gray-500 mb-4">Triggers drift for dynamic segments.</p>
+                        <select id="sim-user" class="p-2 border rounded w-full mb-2"></select>
+                        <input type="number" id="sim-amount" placeholder="Amount ($)" class="p-2 border rounded w-full mb-2">
+                        <button onclick="simulateTransaction(false)" class="w-full bg-blue-600 text-white px-4 py-2 rounded font-semibold hover:bg-blue-700">Add Transaction</button>
+                    </div>
+
+                    <div class="col-span-2 bg-red-50 p-6 rounded-lg shadow-sm border border-red-200 flex items-center justify-between">
+                        <div>
+                            <h3 class="font-bold text-red-700">3. 10k Bulk Load Test</h3>
+                            <p class="text-xs text-red-600">Proves Redis coalescing works under extreme load.</p>
+                        </div>
+                        <div class="flex gap-4 items-center">
+                            <select id="bulk-user" class="p-2 border rounded w-48 bg-white"></select>
+                            <button onclick="simulateTransaction(true)" class="bg-red-600 text-white px-6 py-2 rounded font-semibold hover:bg-red-700">Fire 10,000 Txs</button>
+                        </div>
+                    </div>
+                </div>
+                <p id="sim-status" class="text-center text-sm font-bold text-gray-600 mt-4 h-6"></p>
             </div>
 
-            <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <h3 class="font-bold mb-2">2. Single Transaction</h3>
-                <p class="text-xs text-gray-500 mb-4">Triggers drift for dynamic segments.</p>
-                <select id="sim-user" class="p-2 border rounded w-full mb-2"></select>
-                <input type="number" id="sim-amount" placeholder="Amount ($)" class="p-2 border rounded w-full mb-2">
-                <button onclick="simulateTransaction(false)" class="w-full bg-blue-600 text-white px-4 py-2 rounded font-semibold hover:bg-blue-700">Add Transaction</button>
-            </div>
-
-            <div class="bg-red-50 p-6 rounded-lg shadow-sm border border-red-200">
-                <h3 class="font-bold mb-2 text-red-700">3. 10k Bulk Load Test</h3>
-                <p class="text-xs text-red-600 mb-4">Proves Redis coalescing works under extreme load.</p>
-                <select id="bulk-user" class="p-2 border rounded w-full mb-2 bg-white"></select>
-                <button onclick="simulateTransaction(true)" class="w-full bg-red-600 text-white px-4 py-2 rounded font-semibold hover:bg-red-700">Fire 10,000 Transactions</button>
+            <div class="col-span-1">
+                <h2 class="text-2xl font-bold mb-4 text-gray-700">📡 Live Delta Feed</h2>
+                <div class="bg-gray-900 text-green-400 p-4 rounded-lg shadow-inner h-[380px] overflow-y-auto font-mono text-sm border-4 border-gray-800">
+                    <ul id="activity-feed" class="space-y-2">
+                        <li class="text-gray-500 italic">Waiting for drift events...</li>
+                    </ul>
+                </div>
             </div>
         </div>
-        
-        <p id="sim-status" class="text-center text-sm font-bold text-gray-600 mt-6 h-6"></p>
     </div>
 
     <script>
@@ -85,12 +102,26 @@
             ul.innerHTML = members.map(m => `<li>👤 ${m.name}</li>`).join('');
         }
 
-        async function fetchUsersForDropdown() {
+        async function fetchActivity() {
+            const res = await fetch(`/api/activity`);
+            const deltas = await res.json();
+            const feed = document.getElementById('activity-feed');
+            
+            if (deltas.length === 0) return;
 
+            feed.innerHTML = deltas.map(d => {
+                const isAdd = d.action === 'added';
+                const color = isAdd ? 'text-green-400' : 'text-red-400';
+                const symbol = isAdd ? '[+]' : '[-]';
+                const verb = isAdd ? 'joined' : 'left';
+                return `<li><span class="text-gray-500">[${d.time}]</span> <span class="${color}">${symbol}</span> ${d.user} ${verb} <strong>${d.segment}</strong></li>`;
+            }).join('');
         }
         
         let localUsers = [
-            {id: 1, name: "Alice"}, {id: 2, name: "Bob"}, {id: 3, name: "Charlie"}
+            {id: 1, name: "Alice (Active VIP)"}, 
+            {id: 2, name: "Bob (Active Low Spender)"}, 
+            {id: 3, name: "Charlie (Inactive)"}
         ];
 
         function renderDropdowns() {
@@ -111,7 +142,7 @@
             localUsers.push(newUser);
             renderDropdowns();
             document.getElementById("new-user-name").value = '';
-            showStatus(`User '${name}' created! Give them a transaction to add them to a segment.`);
+            showStatus(`User '${name}' created! Give them a transaction to trigger drift.`);
         }
 
         async function simulateTransaction(isBulk) {
@@ -143,6 +174,7 @@
             btn.innerText = "⏳...";
             await fetch(`/api/segments/${id}/evaluate`, { method: 'POST' });
             await fetchSegment(id);
+            await fetchActivity();
             btn.innerText = "🔄 Manual Refresh";
         }
 
@@ -153,8 +185,13 @@
         }
 
         renderDropdowns();
-        setInterval(() => { [1,2,3,4].forEach(fetchSegment); }, 3000);
+        setInterval(() => { 
+            [1,2,3,4].forEach(fetchSegment); 
+            fetchActivity();
+        }, 3000);
+        
         [1,2,3,4].forEach(fetchSegment);
+        fetchActivity();
     </script>
 </body>
 </html>
