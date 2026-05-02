@@ -1,7 +1,6 @@
 import os
 import redis
 
-# Docker will inject REDIS_HOST="redis", otherwise fallback to "localhost"
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 
 redis_client = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
