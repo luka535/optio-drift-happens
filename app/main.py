@@ -158,5 +158,4 @@ def simulate_bulk_transactions(bulk_in: schemas.BulkTransactionCreate, db: Sessi
 
 @app.get("/api/users", response_model=List[schemas.UserOut])
 def get_all_users(db: Session = Depends(get_db)):
-    """Fetches all users to populate the UI dropdowns."""
     return db.query(models.User).order_by(models.User.id).all()

@@ -26,6 +26,46 @@ services:
     volumes:
       - redis_data:/data
 
+  api:
+    build: .
+    container_name: optio_api
+    command: bash -c "python app/seed.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg://optio_user:optio_password@db:5432/drift_happens
+      - REDIS_HOST=redis
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build: .
+    container_name: optio_worker
+    command: celery -A app.worker worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql+psycopg://optio_user:optio_password@db:5432/drift_happens
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+      - api
+
+  beat:
+    build: .
+    container_name: optio_beat
+    command: celery -A app.worker beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql+psycopg://optio_user:optio_password@db:5432/drift_happens
+      - REDIS_HOST=redis
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
 volumes:
   postgres_data:
   redis_data:

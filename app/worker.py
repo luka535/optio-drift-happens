@@ -1,3 +1,4 @@
+import os
 from celery import Celery
 from app.redis_client import sweep_dirty_segments, redis_client
 from app.database import SessionLocal
@@ -6,7 +7,9 @@ from app.models import TriggerType
 import time
 from app.models import TriggerType, SegmentDeltaMember, DeltaAction
 
-celery_app = Celery("drift_worker", broker="redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+celery_app = Celery("drift_worker", broker=REDIS_URL)
 
 @celery_app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
