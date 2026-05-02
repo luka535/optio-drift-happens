@@ -155,3 +155,8 @@ def simulate_bulk_transactions(bulk_in: schemas.BulkTransactionCreate, db: Sessi
         "message": f"Successfully injected {bulk_in.count} transactions for User {bulk_in.user_id}",
         "note": "Watch the Celery worker - it will only evaluate the segments ONE time!"
     }
+
+@app.get("/api/users", response_model=List[schemas.UserOut])
+def get_all_users(db: Session = Depends(get_db)):
+    """Fetches all users to populate the UI dropdowns."""
+    return db.query(models.User).order_by(models.User.id).all()

@@ -118,11 +118,13 @@
             }).join('');
         }
         
-        let localUsers = [
-            {id: 1, name: "Alice (Active VIP)"}, 
-            {id: 2, name: "Bob (Active Low Spender)"}, 
-            {id: 3, name: "Charlie (Inactive)"}
-        ];
+        let localUsers = [];
+
+        async function fetchUsersForDropdown() {
+            const res = await fetch('/api/users');
+            localUsers = await res.json();
+            renderDropdowns();
+        }
 
         function renderDropdowns() {
             const opts = localUsers.map(u => `<option value="${u.id}">${u.name} (ID: ${u.id})</option>`).join('');
@@ -184,7 +186,7 @@
             setTimeout(() => status.innerText = "", 5000);
         }
 
-        renderDropdowns();
+        fetchUsersForDropdown();
         setInterval(() => { 
             [1,2,3,4].forEach(fetchSegment); 
             fetchActivity();
